@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<meta name="description" content="nanolize 在 tqdm 上的三次压缩实验（graph-contract、field-fixes、fact-rules）的对比。">
+<title>tqdm 压缩实验对比</title>
+<style>
+html{-webkit-text-size-adjust:100%}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+/* 布局：单列报告。先三张实验卡片，再按主题分节，每节先图后表。颜色只表示是哪一次实验。 */
+:root{
+  --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --line:rgba(11,11,11,.10); --wash:rgba(11,11,11,.04);
+  --s-gc:#2a78d6; --s-ff:#eb6834; --s-fr:#1baf7a; --ctx:#b9b7ad;
+  --good:#0ca30c; --warn:#fab219; --bad:#d03b3b;
+  --tip:#ffffff; --shadow:0 6px 20px rgba(11,11,11,.12);
+  --sans:system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --page:#0d0d0d; --surface:#1a1a19; --ink:#f0efec; --ink2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --line:rgba(255,255,255,.10); --wash:rgba(255,255,255,.05);
+    --s-gc:#3987e5; --s-ff:#d95926; --s-fr:#199e70; --ctx:#5d5c57;
+    --good:#0ca30c; --warn:#fab219; --bad:#e66767;
+    --tip:#262624; --shadow:0 6px 20px rgba(0,0,0,.5); color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --page:#0d0d0d; --surface:#1a1a19; --ink:#f0efec; --ink2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --line:rgba(255,255,255,.10); --wash:rgba(255,255,255,.05);
+  --s-gc:#3987e5; --s-ff:#d95926; --s-fr:#199e70; --ctx:#5d5c57;
+  --good:#0ca30c; --warn:#fab219; --bad:#e66767;
+  --tip:#262624; --shadow:0 6px 20px rgba(0,0,0,.5); color-scheme:dark;
+}
+body{background:var(--page);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.6}
+.wrap{max-width:1060px;margin:0 auto;padding-block:28px 56px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:40px}
+h1{font-size:30px;line-height:1.2;margin:0;font-weight:650;text-wrap:balance}
+h2{font-size:20px;line-height:1.3;margin:0;font-weight:650;text-wrap:balance}
+h3{font-size:15px;margin:0;font-weight:650}
+p{margin:0;max-width:46em}
+code{font-family:var(--mono);font-size:.9em;background:var(--wash);padding:1px 4px;border-radius:4px;overflow-wrap:anywhere}
+a{color:inherit}
+a:focus-visible,.hit:focus-visible,.mark:focus-visible{outline:2px solid var(--s-gc);outline-offset:2px}
+.eyebrow{font-size:12px;letter-spacing:.04em;color:var(--ink2)}
+.top{display:flex;flex-direction:column;gap:12px}
+.lede{font-size:17px;line-height:1.65;color:var(--ink)}
+.toc{display:flex;flex-wrap:wrap;gap:6px 8px;font-size:13px}
+.toc a{text-decoration:none;color:var(--ink2);border:1px solid var(--line);border-radius:999px;padding:2px 10px;background:var(--surface)}
+.toc a:hover{color:var(--ink);border-color:var(--axis)}
+section{display:flex;flex-direction:column;gap:14px;min-width:0}
+.note{color:var(--ink2);font-size:14px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:baseline;flex:none}
+.lk{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle;flex:none}
+.sw.gc,.lk.gc{background:var(--s-gc)} .sw.ff,.lk.ff{background:var(--s-ff)} .sw.fr,.lk.fr{background:var(--s-fr)} .sw.orig{background:var(--ctx)}
+
+/* 三张实验卡片 */
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.card h3{font-size:16px;display:flex;align-items:center;flex-wrap:wrap}
+.card .when{font-size:12px;color:var(--ink2)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:13px;border:1px solid var(--line);border-radius:999px;padding:2px 10px 2px 8px;align-self:flex-start;background:var(--page)}
+.pill svg{flex:none}
+.figs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px;margin:0}
+.figs div{min-width:0}
+.figs dt{font-size:12px;color:var(--ink2)}
+.figs dd{margin:0;font-size:20px;font-weight:650;line-height:1.25}
+.figs dd small{display:block;font-size:12px;font-weight:400;color:var(--ink2)}
+.card p{font-size:13.5px;color:var(--ink2)}
+
+/* 图 */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.panel h3{font-size:14px}
+.panel .sub{font-size:12.5px;color:var(--ink2)}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 16px;list-style:none;margin:0;padding:0;font-size:12.5px;color:var(--ink2)}
+.legend li{display:flex;align-items:center}
+.chart{position:relative;min-width:0}
+.plot{min-height:150px}
+.plot svg{display:block;overflow:visible}
+.plot text{font-family:var(--sans);font-size:12px}
+.tick{fill:var(--muted)} .lab{fill:var(--ink2)} .val{fill:var(--ink);font-variant-numeric:tabular-nums}
+.grid{stroke:var(--grid);stroke-width:1} .axis{stroke:var(--axis);stroke-width:1}
+.ref{stroke:var(--ink2);stroke-width:1} .reft{fill:var(--ink2);font-size:11px}
+.cross{stroke:var(--axis);stroke-width:1}
+.bar.s-gc,.dot.s-gc{fill:var(--s-gc)} .bar.s-ff,.dot.s-ff{fill:var(--s-ff)} .bar.s-fr,.dot.s-fr{fill:var(--s-fr)} .bar.s-orig{fill:var(--ctx)}
+.ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.l-gc{stroke:var(--s-gc)} .l-ff{stroke:var(--s-ff)} .l-fr{stroke:var(--s-fr)}
+.dot{stroke:var(--surface);stroke-width:2}
+.hit{fill:transparent}
+.mark:hover .bar,.mark:focus .bar{opacity:.8}
+.tip{position:absolute;z-index:5;pointer-events:none;background:var(--tip);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.5;max-width:260px}
+.tip-t{color:var(--ink2);margin-bottom:2px}
+.tip-r{display:flex;align-items:baseline;gap:6px;white-space:nowrap}
+.tip-r b{font-weight:650;font-variant-numeric:tabular-nums}
+.tip-r span.nm{color:var(--ink2)}
+
+/* 表 */
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:600px;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}
+thead th{font-size:12.5px;font-weight:650;color:var(--ink2);white-space:nowrap;background:var(--wash)}
+tbody th{font-weight:500;color:var(--ink2);width:27%}
+td{font-variant-numeric:tabular-nums}
+table.num td,table.num thead th:not(:first-child){text-align:right}
+td small,th small{color:var(--ink2);font-size:12px}
+tr.total th,tr.total td{font-weight:650;color:var(--ink)}
+
+/* 每次尝试的结果条 */
+.strips{display:flex;flex-direction:column;gap:10px}
+.strip-row{display:grid;grid-template-columns:132px minmax(0,1fr);gap:8px 12px;align-items:start}
+.strip-row .who{font-size:13px;color:var(--ink2);display:flex;align-items:center;padding-top:3px}
+.strip{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}
+.strip li{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;border:1px solid var(--line);border-radius:6px;padding:2px 8px 2px 4px;background:var(--surface);white-space:nowrap}
+.strip li b{font-weight:650;font-size:11.5px;color:var(--ink2);background:var(--wash);border-radius:4px;min-width:18px;text-align:center;padding:0 3px}
+.strip li.rej{color:var(--ink2)}
+.strip svg{flex:none}
+
+/* 问题清单 */
+.cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.cols ol{margin:0;padding-left:20px;font-size:14px;display:flex;flex-direction:column;gap:6px}
+.cols h3{display:flex;align-items:center}
+.src{font-size:13.5px;color:var(--ink2);margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px;max-width:60em}
+
+@media (max-width:820px){
+  .cards,.cols,.two{grid-template-columns:minmax(0,1fr)}
+  .strip-row{grid-template-columns:minmax(0,1fr)}
+  h1{font-size:25px}
+}
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+
+<header class="top">
+  <p class="eyebrow">nanolize 0.8.0 · tqdm 9cf5a12 · 2026-11-13 至 11-14 · 时间均为 UTC</p>
+  <h1>tqdm 压缩实验对比</h1>
+  <p class="lede">三次实验都把 tqdm 压到原来的 53%–59%，都没达到 50% 的体积目标。fact-rules 是唯一既通过验收、又让 25 个叶子都有有效测试的一次，但体积最大。graph-contract 体积最小，却丢了 3 个模块路径。field-fixes 的检查全部通过，但 monitor 叶子没有有效测试，所以按有缺口交付，耗时和花费也最高。</p>
+  <nav class="toc" aria-label="本页内容">
+    <a href="#result">结果</a><a href="#size">体积</a><a href="#process">修复过程</a><a href="#overlap">防背诵</a><a href="#freeze">冻结阶段</a><a href="#time">耗时</a><a href="#cost">花费</a><a href="#extra">额外验证</a><a href="#compat">兼容性</a><a href="#setup">设置</a><a href="#issues">问题</a>
+  </nav>
+</header>
+
+<section id="overview" aria-label="三次实验概览">
+  <div class="cards">
+    <article class="card" id="card-gc">
+      <div>
+        <h3><span class="sw gc"></span>graph-contract</h3>
+        <div class="when">11 月 13 日 03:35–06:01 · <code>claude/graph-contract</code></div>
+      </div>
+      <span class="pill"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="7" fill="var(--good)"/><path d="M3.8 7.3l2.2 2.2 4.2-4.6" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>验收通过</span>
+      <dl class="figs">
+        <div><dt>保留体积</dt><dd>53.3%<small>37,624 token</small></dd></div>
+        <div><dt>最终检查</dt><dd>34/34<small>候选 8</small></dd></div>
+        <div><dt>耗时</dt><dd>2 小时 27 分</dd></div>
+        <div><dt>作者调用花费</dt><dd>$37.94</dd></div>
+      </dl>
+      <p>体积最小。交付物少了 3 个模块路径，man page 缩到 51 行，helpers 叶子没有有效测试。</p>
+    </article>
+    <article class="card" id="card-ff">
+      <div>
+        <h3><span class="sw ff"></span>field-fixes</h3>
+        <div class="when">11 月 14 日 01:53–04:52 · <code>claude/graph-contract-field-fixes</code></div>
+      </div>
+      <span class="pill"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 .8l6.6 12H.4z" fill="var(--warn)"/><path d="M7 5v4" stroke="#0b0b0b" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="11" r=".9" fill="#0b0b0b"/></svg>有缺口交付</span>
+      <dl class="figs">
+        <div><dt>保留体积</dt><dd>54.2%<small>38,227 token</small></dd></div>
+        <div><dt>最终检查</dt><dd>31/31<small>候选 11</small></dd></div>
+        <div><dt>耗时</dt><dd>2 小时 59 分</dd></div>
+        <div><dt>作者调用花费</dt><dd>$59.13</dd></div>
+      </dl>
+      <p>检查全过，但 monitor 叶子没有有效测试，3 个能力只算部分验证。唯一做了体积优化的一次，共 3 次。</p>
+    </article>
+    <article class="card" id="card-fr">
+      <div>
+        <h3><span class="sw fr"></span>fact-rules</h3>
+        <div class="when">11 月 14 日 03:45–05:51 · <code>claude/graph-contract-fact-rules</code></div>
+      </div>
+      <span class="pill"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="7" fill="var(--good)"/><path d="M3.8 7.3l2.2 2.2 4.2-4.6" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>验收通过</span>
+      <dl class="figs">
+        <div><dt>保留体积</dt><dd>58.8%<small>41,475 token</small></dd></div>
+        <div><dt>最终检查</dt><dd>33/33<small>候选 8</small></dd></div>
+        <div><dt>耗时</dt><dd>2 小时 6 分</dd></div>
+        <div><dt>作者调用花费</dt><dd>$38.15</dd></div>
+      </dl>
+      <p>25 个叶子都有有效测试，用时最短。最后一次修复把 docstring 和大部分 man page 从原版搬了回来，体积涨了 4,103 token。</p>
+    </article>
+  </div>
+</section>
+
+<section id="result">
+  <h2>结果</h2>
+  <div class="tw"><table>
+    <thead><tr><th scope="col">项目</th><th scope="col"><span class="sw gc"></span>graph-contract</th><th scope="col"><span class="sw ff"></span>field-fixes</th><th scope="col"><span class="sw fr"></span>fact-rules</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">结束状态</th><td>succeeded<br><small>验收通过，无缺口</small></td><td>completed_with_gaps<br><small>验收未完成，2 个缺口</small></td><td>succeeded<br><small>验收通过，无缺口</small></td></tr>
+      <tr><th scope="row">交付的候选</th><td>候选 8<small>（第 8 次尝试）</small></td><td>候选 11<small>（第 11 次尝试）</small></td><td>候选 8<small>（第 8 次尝试）</small></td></tr>
+      <tr><th scope="row">最终检查</th><td>34/34 通过</td><td>31/31 通过</td><td>33/33 通过</td></tr>
+      <tr><th scope="row">能力（共 32 个）</th><td>32 个已验证</td><td>29 个已验证，3 个部分验证</td><td>32 个已验证</td></tr>
+      <tr><th scope="row">安装检查</th><td>4/4</td><td>4/4</td><td>4/4</td></tr>
+      <tr><th scope="row">有有效测试的叶子</th><td>24/25<small>（缺 helpers）</small></td><td>24/25<small>（缺 monitor）</small></td><td>25/25</td></tr>
+      <tr><th scope="row">体积目标（50%）</th><td>未达到</td><td>未达到</td><td>未达到</td></tr>
+      <tr><th scope="row">控制器轮数</th><td>11</td><td>16<small>（其中 1 轮作废）</small></td><td>11</td></tr>
+      <tr><th scope="row">作者调用</th><td>13<small>（修复 9）</small></td><td>15<small>（修复 10，优化 3）</small></td><td>12<small>（修复 10）</small></td></tr>
+      <tr><th scope="row">保存被拒</th><td>3 次</td><td>2 次</td><td>3 次</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">field-fixes 的缺口不是检查失败。monitor 叶子没有有效测试，完整行为对比因此记为未验证，nanolize 不对这次交付做完全保留的声明。graph-contract 也有一个叶子（helpers）没有有效测试，但那个分支的义务台账仍把它记为已验证。</p>
+</section>
+
+<section id="size">
+  <h2>体积</h2>
+  <div class="panel">
+    <h3>交付物的总 token（源码加配置）</h3>
+    <ul class="legend"><li><span class="sw orig"></span>原版</li><li><span class="sw gc"></span>graph-contract</li><li><span class="sw ff"></span>field-fixes</li><li><span class="sw fr"></span>fact-rules</li></ul>
+    <div class="chart" id="c-size"><div class="plot"></div><div class="tip" hidden></div></div>
+  </div>
+  <div class="tw"><table class="num">
+    <thead><tr><th scope="col">项目</th><th scope="col"><span class="sw orig"></span>原版</th><th scope="col"><span class="sw gc"></span>graph-contract</th><th scope="col"><span class="sw ff"></span>field-fixes</th><th scope="col"><span class="sw fr"></span>fact-rules</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">总 token</th><td>70,579</td><td>37,624</td><td>38,227</td><td>41,475</td></tr>
+      <tr><th scope="row">保留比例</th><td>100%</td><td>53.3%</td><td>54.2%</td><td>58.8%</td></tr>
+      <tr><th scope="row">源码 token</th><td>45,979</td><td>30,780</td><td>31,203</td><td>33,035</td></tr>
+      <tr><th scope="row">配置 token</th><td>24,600</td><td>6,844</td><td>7,024</td><td>8,440</td></tr>
+      <tr><th scope="row">源码行数</th><td>5,608</td><td>3,448</td><td>3,595</td><td>3,863</td></tr>
+      <tr><th scope="row">源码文件数</th><td>48</td><td>45</td><td>48</td><td>48</td></tr>
+      <tr><th scope="row">不计未带过去的配置时的保留比例</th><td>—</td><td>68.8%</td><td>69.9%</td><td>75.9%</td></tr>
+      <tr><th scope="row">Python 代码 token</th><td>31,396</td><td>25,655</td><td>25,216</td><td>26,269</td></tr>
+      <tr><th scope="row">docstring token</th><td>9,872</td><td>3,856</td><td>4,555</td><td>5,332</td></tr>
+      <tr><th scope="row">注释 token</th><td>3,579</td><td>771</td><td>931</td><td>906</td></tr>
+      <tr><th scope="row">有文档的公开定义</th><td>105/166<br><small>63.3%</small></td><td>42/162<br><small>25.9%</small></td><td>40/155<br><small>25.8%</small></td><td>52/170<br><small>30.6%</small></td></tr>
+      <tr><th scope="row">man page <code>tqdm/tqdm.1</code></th><td>241 行<br><small>2,428 token</small></td><td>51 行<br><small>579 token</small></td><td>71 行<br><small>759 token</small></td><td>大部分补回<br><small>2,175 token</small></td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">原版的 24,600 个配置 token 里，有 15,907 个属于交付物里没有的 18 个文件（如 <code>DEMO.ipynb</code>、CI 配置）。这部分不是重写省下来的，所以表里另给了一行不计它们的比例。</p>
+  <p class="note">三次的最后一步都是修 <code>contract-maintainer-tools</code> 这一项检查，体积都在这一步上涨：graph-contract 涨 2,115 token，field-fixes 涨 2,382，fact-rules 涨 4,103。field-fixes 随后用 3 次优化从 40,535 降到 38,227。</p>
+</section>
+
+<section id="process">
+  <h2>修复过程</h2>
+  <p class="note">三次的曲线很像：首稿都因为和原版重合度过高被拒，第一个保存成功的候选失败 6 到 10 项检查，之后每次修复减少一到几项。</p>
+  <div class="two">
+    <div class="panel">
+      <h3>每个候选失败的检查数</h3>
+      <ul class="legend"><li><span class="lk gc"></span>graph-contract</li><li><span class="lk ff"></span>field-fixes</li><li><span class="lk fr"></span>fact-rules</li></ul>
+      <div class="chart" id="c-fail"><div class="plot" style="min-height:240px"></div><div class="tip" hidden></div></div>
+    </div>
+    <div class="panel">
+      <h3>每个候选的总 token</h3>
+      <ul class="legend"><li><span class="lk gc"></span>graph-contract</li><li><span class="lk ff"></span>field-fixes</li><li><span class="lk fr"></span>fact-rules</li></ul>
+      <div class="chart" id="c-tok"><div class="plot" style="min-height:240px"></div><div class="tip" hidden></div></div>
+    </div>
+  </div>
+  <div class="panel">
+    <h3>每次尝试的结果</h3>
+    <div class="sub">数字是第几次尝试。被拒的保存没有候选，也就没有检查结果。</div>
+    <div class="strips">
+      <div class="strip-row"><div class="who"><span class="sw gc"></span>graph-contract</div>
+        <ol class="strip">
+          <li class="rej"><b>1</b>首稿被拒 · 重合 62%</li>
+          <li class="rej"><b>2</b>被拒 · 写了验证方的文件</li>
+          <li><b>3</b>失败 6 项</li>
+          <li><b>4</b>失败 3 项</li>
+          <li class="rej"><b>5</b>被拒 · 写了验证方的文件</li>
+          <li><b>6</b>失败 2 项</li>
+          <li><b>7</b>失败 1 项</li>
+          <li><b>8</b>全过 · 交付</li>
+        </ol></div>
+      <div class="strip-row"><div class="who"><span class="sw ff"></span>field-fixes</div>
+        <ol class="strip">
+          <li class="rej"><b>1</b>首稿被拒 · 重合 57%</li>
+          <li><b>2</b>失败 10 项</li>
+          <li><b>3</b>失败 3 项</li>
+          <li><b>4</b>失败 3 项</li>
+          <li><b>5</b>失败 2 项</li>
+          <li><b>6</b>失败 1 项</li>
+          <li class="rej"><b>7</b>被拒 · 重合度超限</li>
+          <li><b>8</b>全过</li>
+          <li><b>9</b>优化 · 全过</li>
+          <li><b>10</b>优化 · 全过</li>
+          <li><b>11</b>优化 · 全过 · 交付</li>
+        </ol></div>
+      <div class="strip-row"><div class="who"><span class="sw fr"></span>fact-rules</div>
+        <ol class="strip">
+          <li class="rej"><b>1</b>首稿被拒 · 重合 59%</li>
+          <li><b>2</b>失败 6 项</li>
+          <li><b>3</b>失败 3 项</li>
+          <li class="rej"><b>4</b>被拒 · 重合度超限</li>
+          <li><b>5</b>失败 2 项</li>
+          <li><b>6</b>失败 1 项</li>
+          <li class="rej"><b>7</b>被拒 · 重合度超限</li>
+          <li><b>8</b>全过 · 交付</li>
+        </ol></div>
+    </div>
+  </div>
+</section>
+
+<section id="overlap">
+  <h2>防背诵：和原版的重合度</h2>
+  <div class="tw"><table>
+    <thead><tr><th scope="col">项目</th><th scope="col"><span class="sw gc"></span>graph-contract</th><th scope="col"><span class="sw ff"></span>field-fixes</th><th scope="col"><span class="sw fr"></span>fact-rules</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">首稿整体重合度<small>（上限 40%）</small></th><td>62%</td><td>57%</td><td>59%</td></tr>
+      <tr><th scope="row">首稿里超过单函数上限的函数<small>（上限 60%）</small></th><td>28 个</td><td>29 个</td><td>32 个</td></tr>
+      <tr><th scope="row">重写后整体重合度</th><td>40%</td><td>38%</td><td>41%</td></tr>
+      <tr><th scope="row">交付物整体重合度</th><td>42%</td><td>39%</td><td>42%</td></tr>
+      <tr><th scope="row">交付物里超过单函数上限的函数</th><td>1 个<br><small><code>tqdm.reset</code>，8 行，88%</small></td><td>1 个<br><small><code>tqdm.reset</code>，8 行，62%</small></td><td>0 个</td></tr>
+      <tr><th scope="row">因重合度被拒的保存</th><td>1 次<small>（首稿）</small></td><td>2 次<small>（首稿、第 7 次）</small></td><td>3 次<small>（首稿、第 4 次、第 7 次）</small></td></tr>
+      <tr><th scope="row">因写了验证方文件被拒的保存</th><td>2 次<small>（第 2、5 次）</small></td><td>0 次</td><td>0 次</td></tr>
+      <tr><th scope="row">被退回过的文件</th><td>30 个</td><td>31 个</td><td>40 个</td></tr>
+      <tr><th scope="row">修复时读了原版的作者调用</th><td>4 次</td><td>5 次</td><td>4 次</td></tr>
+      <tr><th scope="row">读到的原版范围</th><td>8 个能力，28 个文件</td><td>13 个能力，35 个文件</td><td>9 个能力，30 个文件</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">首次实现不看源码。检查失败后的修复可以读失败能力的原版文件。每个文件只会被退回一次，所以交付物的重合度可以停在上限之上；docstring 不计入重合度。</p>
+</section>
+
+<section id="freeze">
+  <h2>冻结阶段</h2>
+  <div class="tw"><table>
+    <thead><tr><th scope="col">项目</th><th scope="col"><span class="sw gc"></span>graph-contract</th><th scope="col"><span class="sw ff"></span>field-fixes</th><th scope="col"><span class="sw fr"></span>fact-rules</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">测试事实</th><td>81 条，覆盖 15 项检查<br><small>丢弃 3 条</small></td><td>68 条，覆盖 14 项检查<br><small>丢弃 1 条</small></td><td>64 条，覆盖 14 项检查<br><small>丢弃 1 条</small></td></tr>
+      <tr><th scope="row">保留的检查</th><td>29 项</td><td>28 项</td><td>28 项</td></tr>
+      <tr><th scope="row">基线后缺有效测试的叶子</th><td>6 个</td><td>4 个</td><td>4 个</td></tr>
+      <tr><th scope="row">接受的设计测试</th><td>5 个<br><small>benchmarks、concurrent、keras、logging、monitor</small></td><td>3 个<br><small>concurrent、keras、logging</small></td><td>5 个<br><small>concurrent、keras、logging 各 1 个，monitor 2 个</small></td></tr>
+      <tr><th scope="row">被拒的测试提案</th><td>6 个<br><small>全是 helpers：敲掉该叶子后测试仍通过</small></td><td>1 个<br><small>monitor：评审认为约 3% 的概率在正确代码上失败</small></td><td>0 个</td></tr>
+      <tr><th scope="row">最终有有效测试的叶子</th><td>24/25</td><td>24/25</td><td>25/25</td></tr>
+      <tr><th scope="row">原版基线</th><td>34 项全过<small>（29 + 5）</small></td><td>31 项全过<small>（28 + 3）</small></td><td>33 项全过<small>（28 + 5）</small></td></tr>
+      <tr><th scope="row">测试设计用时</th><td>29.7 分钟<small>（7 次调用）</small></td><td>16.1 分钟<small>（4 次调用）</small></td><td>17.1 分钟<small>（4 次调用）</small></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="time">
+  <h2>耗时</h2>
+  <div class="panel">
+    <h3>各阶段用时（分钟）</h3>
+    <ul class="legend"><li><span class="sw gc"></span>graph-contract</li><li><span class="sw ff"></span>field-fixes</li><li><span class="sw fr"></span>fact-rules</li></ul>
+    <div class="chart" id="c-time"><div class="plot" style="min-height:230px"></div><div class="tip" hidden></div></div>
+  </div>
+  <div class="tw"><table class="num">
+    <thead><tr><th scope="col">分钟</th><th scope="col"><span class="sw gc"></span>graph-contract</th><th scope="col"><span class="sw ff"></span>field-fixes</th><th scope="col"><span class="sw fr"></span>fact-rules</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">写测试事实</th><td>4.1</td><td>3.5</td><td>3.8</td></tr>
+      <tr><th scope="row">捕获原版基线</th><td>6.8</td><td>7.4</td><td>7.5</td></tr>
+      <tr><th scope="row">设计叶子测试</th><td>29.7</td><td>16.1</td><td>17.1</td></tr>
+      <tr><th scope="row">作者调用</th><td>86.8</td><td>126.1</td><td>81.1</td></tr>
+      <tr><th scope="row">保存、对比、安装检查</th><td>12.0</td><td>15.5</td><td>9.2</td></tr>
+      <tr><th scope="row">控制器</th><td>6.6</td><td>9.5</td><td>6.8</td></tr>
+      <tr><th scope="row">其他</th><td>0.7</td><td>1.1</td><td>0.6</td></tr>
+      <tr class="total"><th scope="row">合计</th><td>146.7</td><td>179.1</td><td>126.1</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">field-fixes 和 fact-rules 有 67 分钟同时在跑（03:45–04:52）。field-fixes 的 3 次体积优化占了约 31 分钟作者时间。</p>
+</section>
+
+<section id="cost">
+  <h2>花费与用量</h2>
+  <div class="tw"><table class="num">
+    <thead><tr><th scope="col">项目</th><th scope="col"><span class="sw gc"></span>graph-contract</th><th scope="col"><span class="sw ff"></span>field-fixes</th><th scope="col"><span class="sw fr"></span>fact-rules</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">作者调用花费（美元）</th><td>37.94</td><td>59.13</td><td>38.15</td></tr>
+      <tr><th scope="row">作者调用次数</th><td>13</td><td>15</td><td>12</td></tr>
+      <tr><th scope="row">作者 token 合计</th><td>16.59M</td><td>31.44M</td><td>15.33M</td></tr>
+      <tr><th scope="row">其中缓存读取</th><td>15.22M</td><td>29.32M</td><td>13.94M</td></tr>
+      <tr><th scope="row">作者输出 token</th><td>398,584</td><td>586,885</td><td>406,243</td></tr>
+      <tr><th scope="row">其他调用次数</th><td>51</td><td>51</td><td>44</td></tr>
+      <tr><th scope="row">其他调用 token</th><td>4.66M</td><td>3.34M</td><td>3.26M</td></tr>
+      <tr><th scope="row">其中测试设计</th><td>2.26M</td><td>0.74M</td><td>0.86M</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">花费是 Claude 对作者会话报告的金额。其他调用指控制器、测试事实的编写与评审、测试的设计与评审，它们只有 token 记录，没有金额。</p>
+</section>
+
+<section id="extra">
+  <h2>额外验证：被剔除的原版测试</h2>
+  <p class="note">转换时有 4 到 5 个原版测试文件没有成为检查。各次运行结束后把它们在交付物上又跑了一遍，结果不算验收标准。</p>
+  <div class="tw"><table>
+    <thead><tr><th scope="col">测试文件</th><th scope="col"><span class="sw orig"></span>原版</th><th scope="col"><span class="sw gc"></span>graph-contract</th><th scope="col"><span class="sw ff"></span>field-fixes</th><th scope="col"><span class="sw fr"></span>fact-rules</th></tr></thead>
+    <tbody>
+      <tr><th scope="row"><code>tests_tqdm</code></th><td>86 通过</td><td>86/86</td><td>收集失败<br><small>缺 <code>EMA</code>；绕开后 85/86</small></td><td>86/86</td></tr>
+      <tr><th scope="row"><code>tests_main</code></th><td>9 通过</td><td>6/9</td><td>5/9</td><td>9/9</td></tr>
+      <tr><th scope="row"><code>tests_concurrent</code></th><td>13 通过</td><td>12/13</td><td>12/13</td><td>12/13</td></tr>
+      <tr><th scope="row"><code>tests_contrib_logging</code></th><td>19 通过</td><td>0/19<br><small>收集失败</small></td><td>0/19<br><small>收集失败</small></td><td>0/19<br><small>收集失败</small></td></tr>
+      <tr><th scope="row"><code>tests_synchronisation</code></th><td>6 通过</td><td>没有被剔除<br><small>作为检查保留</small></td><td>2/6</td><td>3/6</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">失败大多来自测试依赖的私有名字不在了：<code>tests_concurrent</code> 缺 <code>_min_map_len</code>，<code>tests_contrib_logging</code> 缺 <code>_get_first_found_console_logging_handler</code>，<code>tests_synchronisation</code> 缺 <code>TMonitor._test</code>。<code>tests_main</code> 的失败是把 <code>sys.stdin</code> 换成 list 的用例。</p>
+</section>
+
+<section id="compat">
+  <h2>兼容性取舍</h2>
+  <div class="tw"><table>
+    <thead><tr><th scope="col">项目</th><th scope="col"><span class="sw gc"></span>graph-contract</th><th scope="col"><span class="sw ff"></span>field-fixes</th><th scope="col"><span class="sw fr"></span>fact-rules</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">模块路径</th><td>少 3 个<br><small><code>tqdm._monitor</code>、<code>tqdm._tqdm_pandas</code>、<code>tqdm.version</code> 不能 import</small></td><td>48 个源文件路径全部保留</td><td>48 个源文件路径全部保留</td></tr>
+      <tr><th scope="row">不见了的内部名字</th><td><small><code>TRLock</code>、<code>posix_pipe</code>、<code>builtin_iterable</code>、<code>_min_map_len</code>、<code>ensure_lock</code></small></td><td><small><code>EMA</code>、<code>TRLock</code>、<code>posix_pipe</code>、<code>builtin_iterable</code>、<code>_min_map_len</code></small></td><td><small><code>TRLock</code>、<code>posix_pipe</code>、<code>builtin_iterable</code>、<code>_min_map_len</code>、<code>_get_first_found_console_logging_handler</code></small></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="setup">
+  <h2>设置</h2>
+  <p class="note">三次相同的部分：nanolize 0.8.0，tqdm 9cf5a12，范围是全部能力，转换后 25 个外部节点和 7 个内部节点（含 32 条手写的 interface 句子），作者用 <code>claude -p</code>（claude-fable-5-2），检查在本机执行，作业预算 12 小时，单次作者调用 2 小时，体积目标 50%。</p>
+  <div class="tw"><table>
+    <thead><tr><th scope="col">项目</th><th scope="col"><span class="sw gc"></span>graph-contract</th><th scope="col"><span class="sw ff"></span>field-fixes</th><th scope="col"><span class="sw fr"></span>fact-rules</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">分支（提交）</th><td><code>claude/graph-contract</code><br><small>eb54c43</small></td><td><code>claude/graph-contract-field-fixes</code><br><small>9413138</small></td><td><code>claude/graph-contract-fact-rules</code><br><small>e51f077</small></td></tr>
+      <tr><th scope="row">作业</th><td><code>e1503fef…</code></td><td><code>71ae1d20…</code></td><td><code>1a8cbe82…</code></td></tr>
+      <tr><th scope="row">运行时间</th><td>11-13 03:35–06:01</td><td>11-14 01:53–04:52</td><td>11-14 03:45–05:51</td></tr>
+      <tr><th scope="row">转换时剔除的原版测试文件</th><td>4 个</td><td>5 个<br><small>多了 tests-synchronisation</small></td><td>5 个</td></tr>
+      <tr><th scope="row">转换后没有检查的外部能力</th><td>2 个<br><small>concurrent、logging</small></td><td>3 个<br><small>concurrent、logging、monitor</small></td><td>3 个<br><small>concurrent、logging、monitor</small></td></tr>
+      <tr><th scope="row"><code>owner_attends</code></th><td>未设置</td><td>false</td><td>false</td></tr>
+      <tr><th scope="row">临时目录</th><td>共用 <code>/tmp</code></td><td>共用 <code>/tmp</code></td><td>独立的 <code>/tmp</code><br><small>因为和 field-fixes 同时在跑</small></td></tr>
+      <tr><th scope="row">交付目录</th><td><code>graph-contract/tqdm-nanolized-20261113-060144</code></td><td><code>graph-contract-field-fixes/tqdm-nanolized-20261114-045208</code></td><td><code>graph-contract-fact-rules/tqdm-nanolized-20261114-055126</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="issues">
+  <h2>运行中记录的问题</h2>
+  <div class="cols">
+    <div class="panel"><h3><span class="sw gc"></span>graph-contract</h3>
+      <ol>
+        <li>plan 拒绝了一条手写的 interface 句子，改写后通过。</li>
+        <li>启动前的预检 <code>scope-baseline</code> 被拒，属于文档写明的行为。</li>
+        <li>第 2 次保存因作者写了验证方的文件被拒，作业自行修复。</li>
+        <li>第 5 次保存因同样原因被拒，作业自行修复。</li>
+      </ol></div>
+    <div class="panel"><h3><span class="sw ff"></span>field-fixes</h3>
+      <ol>
+        <li>预检 <code>scope-baseline</code> 被拒，同左。</li>
+        <li>控制器第 7 轮的指令超过 4,000 字符，整轮作废，作业退回默认修复步骤。</li>
+        <li>第 7 次保存因重合度被拒，一次重写后放行。</li>
+        <li>monitor 叶子的测试提案被评审否决后没有再设计，作业按有缺口交付。</li>
+      </ol></div>
+    <div class="panel"><h3><span class="sw fr"></span>fact-rules</h3>
+      <ol>
+        <li>预检 <code>scope-baseline</code> 被拒，同左。</li>
+        <li><code>run-progress --metrics</code> 传内联 JSON 被拒，是操作输入问题，只影响进度页。</li>
+        <li>第 4 次保存因重合度被拒，作业自行修复。</li>
+        <li>第 7 次保存因重合度被拒，作业自行修复。</li>
+      </ol></div>
+  </div>
+  <p class="note">三次运行都没有改 nanolize 的代码，也没有关闭检查或放宽验收标准。</p>
+</section>
+
+<section id="sources">
+  <h2>数据来源</h2>
+  <ul class="src">
+    <li>各项数字：用同一个统计脚本 <code>graph-contract-fact-rules/nanolize-runs/tqdm/notes/collect.py</code> 分别读取三个作业目录和各自的 <code>job-status-final.json</code>。</li>
+    <li>额外验证：各运行目录下 <code>extra-verification/</code> 里的 pytest 日志。</li>
+    <li>兼容性取舍、转换数字、失败原因和问题清单：各运行目录下的 <code>issues.md</code> 和运行记录。</li>
+    <li>本页生成于 2026-11-14。</li>
+  </ul>
+</section>
+
+</div>
+
+<script>
+(function(){
+  var NS = 'http://www.w3.org/2000/svg';
+  var RUNS = [['gc','graph-contract'],['ff','field-fixes'],['fr','fact-rules']];
+  var TRAJ = {
+    gc: [{a:1,rej:'首稿重合 62%'},{a:2,rej:'写了验证方的文件'},{a:3,f:6,t:34346},{a:4,f:3,t:35128},{a:5,rej:'写了验证方的文件'},{a:6,f:2,t:35510},{a:7,f:1,t:35509},{a:8,f:0,t:37624}],
+    ff: [{a:1,rej:'首稿重合 57%'},{a:2,f:10,t:35652},{a:3,f:3,t:37357},{a:4,f:3,t:37521},{a:5,f:2,t:37850},{a:6,f:1,t:38153},{a:7,rej:'重合度超限'},{a:8,f:0,t:40535},{a:9,f:0,t:39093,opt:1},{a:10,f:0,t:38383,opt:1},{a:11,f:0,t:38227,opt:1}],
+    fr: [{a:1,rej:'首稿重合 59%'},{a:2,f:6,t:35818},{a:3,f:3,t:37215},{a:4,rej:'重合度超限'},{a:5,f:2,t:37390},{a:6,f:1,t:37372},{a:7,rej:'重合度超限'},{a:8,f:0,t:41475}]
+  };
+
+  function S(name, attrs, parent){
+    var e = document.createElementNS(NS, name);
+    for (var k in attrs){ if (Object.prototype.hasOwnProperty.call(attrs, k)) e.setAttribute(k, attrs[k]); }
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function T(text, attrs, parent){ var e = S('text', attrs, parent); e.textContent = text; return e; }
+  function num(n){ return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  function widthOf(host){ return Math.max(280, host.clientWidth || 600); }
+
+  function showTip(box, d, x, y){
+    var tip = box.querySelector('.tip'); if (!tip) return;
+    var kids = [];
+    var t = document.createElement('div'); t.className = 'tip-t'; t.textContent = d.title; kids.push(t);
+    d.rows.forEach(function(r){
+      var row = document.createElement('div'); row.className = 'tip-r';
+      var key = document.createElement('span'); key.className = 'lk ' + r[0]; row.appendChild(key);
+      var b = document.createElement('b'); b.textContent = r[1]; row.appendChild(b);
+      if (r[2]){ var s = document.createElement('span'); s.className = 'nm'; s.textContent = r[2]; row.appendChild(s); }
+      kids.push(row);
+    });
+    tip.replaceChildren.apply(tip, kids);
+    tip.hidden = false;
+    var bw = box.clientWidth || 600, tw = tip.offsetWidth || 180, th = tip.offsetHeight || 60;
+    var left = Math.min(Math.max(4, x + 12), Math.max(4, bw - tw - 4));
+    var top = y - th - 10; if (top < 0) top = y + 16;
+    tip.style.left = left + 'px'; tip.style.top = top + 'px';
+  }
+  function hideTip(box){ var tip = box.querySelector('.tip'); if (tip) tip.hidden = true; }
+  function bind(node, box, get, onState){
+    function show(ev){
+      var r = box.getBoundingClientRect(), x, y;
+      if (ev && ev.type !== 'focus' && typeof ev.clientX === 'number'){ x = ev.clientX - r.left; y = ev.clientY - r.top; }
+      else { var nr = node.getBoundingClientRect(); x = nr.left - r.left + nr.width / 2; y = nr.top - r.top + 8; }
+      showTip(box, get(), x, y);
+      if (onState) onState(true);
+    }
+    function hide(){ hideTip(box); if (onState) onState(false); }
+    node.addEventListener('pointerenter', show);
+    node.addEventListener('pointermove', show);
+    node.addEventListener('pointerleave', hide);
+    node.addEventListener('focus', show);
+    node.addEventListener('blur', hide);
+  }
+
+  function barChart(box, cfg){
+    var host = box.querySelector('.plot');
+    var W = widthOf(host), labW = cfg.labW, padR = cfg.padR, bh = cfg.bh, gap = 2, ggap = cfg.ggap;
+    var top = cfg.ref ? 22 : 6, plotW = W - labW - padR, y = top;
+    cfg.groups.forEach(function(g){ g.y0 = y; y += g.bars.length * (bh + gap) - gap + ggap; });
+    var bottom = y - ggap + 4, H = bottom + 24;
+    var svg = S('svg', {viewBox: '0 0 ' + W + ' ' + H, width: '100%', height: H, role: 'img', 'aria-label': cfg.aria});
+    cfg.ticks.forEach(function(t){
+      var x = labW + plotW * t / cfg.max;
+      S('line', {x1: x, x2: x, y1: top - 2, y2: bottom, 'class': t === 0 ? 'axis' : 'grid'}, svg);
+      T(cfg.tickFmt(t), {x: x, y: H - 6, 'class': 'tick', 'text-anchor': 'middle'}, svg);
+    });
+    if (cfg.ref){
+      var rx = labW + plotW * cfg.ref.v / cfg.max;
+      S('line', {x1: rx, x2: rx, y1: top - 6, y2: bottom, 'class': 'ref'}, svg);
+      T(cfg.ref.label, {x: rx, y: 10, 'class': 'reft', 'text-anchor': 'middle'}, svg);
+    }
+    cfg.groups.forEach(function(g){
+      var gh = g.bars.length * (bh + gap) - gap;
+      T(g.label, {x: labW - 10, y: g.y0 + gh / 2, 'class': 'lab', 'text-anchor': 'end', 'dominant-baseline': 'central'}, svg);
+      g.bars.forEach(function(b, i){
+        var by = g.y0 + i * (bh + gap), w = Math.max(5, plotW * b.v / cfg.max), r = 4;
+        var grp = S('g', {'class': 'mark', tabindex: '0', role: 'img', 'aria-label': b.tip.join('，')}, svg);
+        S('path', {d: 'M' + labW + ',' + by + 'h' + (w - r).toFixed(1) + 'a' + r + ',' + r + ' 0 0 1 ' + r + ',' + r + 'v' + (bh - 2 * r) + 'a' + r + ',' + r + ' 0 0 1 -' + r + ',' + r + 'h-' + (w - r).toFixed(1) + 'z', 'class': 'bar s-' + b.cls}, grp);
+        T(b.text, {x: labW + w + 6, y: by + bh / 2, 'class': 'val', 'dominant-baseline': 'central'}, grp);
+        S('rect', {x: labW, y: by - 1, width: plotW + padR, height: bh + 2, 'class': 'hit'}, grp);
+        bind(grp, box, function(){ return {title: b.tip[0], rows: [[b.cls, b.tip[1], b.tip[2] || '']]}; });
+      });
+    });
+    host.replaceChildren(svg);
+  }
+
+  function entryAt(run, a){ var list = TRAJ[run]; for (var i = 0; i < list.length; i++){ if (list[i].a === a) return list[i]; } return null; }
+
+  function lineChart(box, cfg){
+    var host = box.querySelector('.plot');
+    var W = widthOf(host), H = 240;
+    var m = {l: 44, r: cfg.endFmt ? 56 : 14, t: cfg.ref ? 20 : 10, b: 38};
+    var pw = W - m.l - m.r, ph = H - m.t - m.b;
+    function X(a){ return m.l + pw * (a - 1) / (cfg.n - 1); }
+    function Y(v){ return m.t + ph * (1 - (v - cfg.y0) / (cfg.y1 - cfg.y0)); }
+    var svg = S('svg', {viewBox: '0 0 ' + W + ' ' + H, width: '100%', height: H, role: 'img', 'aria-label': cfg.aria});
+    cfg.ticks.forEach(function(t){
+      S('line', {x1: m.l, x2: m.l + pw, y1: Y(t), y2: Y(t), 'class': t === cfg.y0 ? 'axis' : 'grid'}, svg);
+      T(cfg.tickFmt(t), {x: m.l - 8, y: Y(t), 'class': 'tick', 'text-anchor': 'end', 'dominant-baseline': 'central'}, svg);
+    });
+    for (var a = 1; a <= cfg.n; a++){ T(String(a), {x: X(a), y: H - 20, 'class': 'tick', 'text-anchor': 'middle'}, svg); }
+    T('第几次尝试', {x: m.l + pw / 2, y: H - 4, 'class': 'tick', 'text-anchor': 'middle'}, svg);
+    if (cfg.ref){
+      S('line', {x1: m.l, x2: m.l + pw, y1: Y(cfg.ref.v), y2: Y(cfg.ref.v), 'class': 'ref'}, svg);
+      T(cfg.ref.label, {x: m.l + 4, y: Y(cfg.ref.v) + 13, 'class': 'reft'}, svg);
+    }
+    var cross = S('line', {x1: 0, x2: 0, y1: m.t, y2: m.t + ph, 'class': 'cross', visibility: 'hidden'}, svg);
+    RUNS.forEach(function(run){
+      var pts = TRAJ[run[0]].filter(function(p){ return p[cfg.key] !== undefined; });
+      var d = pts.map(function(p, i){ return (i ? 'L' : 'M') + X(p.a).toFixed(1) + ',' + Y(p[cfg.key]).toFixed(1); }).join('');
+      S('path', {d: d, 'class': 'ln l-' + run[0]}, svg);
+      pts.forEach(function(p){ S('circle', {cx: X(p.a).toFixed(1), cy: Y(p[cfg.key]).toFixed(1), r: 4.5, 'class': 'dot s-' + run[0]}, svg); });
+      if (cfg.endFmt){
+        var e = pts[pts.length - 1];
+        T(cfg.endFmt(e[cfg.key]), {x: X(e.a) + 9, y: Y(e[cfg.key]), 'class': 'val', 'dominant-baseline': 'central'}, svg);
+      }
+    });
+    var cw = pw / (cfg.n - 1);
+    function colData(a){
+      return {title: '第 ' + a + ' 次尝试', rows: RUNS.map(function(run){
+        var p = entryAt(run[0], a), v = '—', nm = run[1];
+        if (p && p.rej){ v = '保存被拒'; nm += '（' + p.rej + '）'; }
+        else if (p){ v = cfg.valFmt(p); if (p.opt) nm += '（体积优化）'; }
+        return [run[0], v, nm];
+      })};
+    }
+    function colLabel(a){
+      return colData(a).rows.map(function(r){ return r[2] + ' ' + r[1]; }).join('；');
+    }
+    function addCol(a){
+      var hit = S('rect', {x: (X(a) - cw / 2).toFixed(1), y: m.t, width: cw.toFixed(1), height: ph, 'class': 'hit', tabindex: '0', role: 'img', 'aria-label': '第 ' + a + ' 次尝试：' + colLabel(a)}, svg);
+      bind(hit, box, function(){ return colData(a); }, function(on){
+        cross.setAttribute('x1', X(a).toFixed(1)); cross.setAttribute('x2', X(a).toFixed(1));
+        cross.setAttribute('visibility', on ? 'visible' : 'hidden');
+      });
+    }
+    for (var c = 1; c <= cfg.n; c++){ addCol(c); }
+    host.replaceChildren(svg);
+  }
+
+  function K(v){ return v ? (v / 1000) + 'K' : '0'; }
+
+  function drawAll(){
+    var size = document.getElementById('c-size');
+    if (size) barChart(size, {
+      aria: '总 token：原版 70,579，graph-contract 37,624，field-fixes 38,227，fact-rules 41,475，目标 35,289',
+      labW: 108, padR: 104, bh: 18, ggap: 12, max: 76000, ticks: [0, 20000, 40000, 60000], tickFmt: K,
+      ref: {v: 35289, label: '目标 35,289'},
+      groups: [
+        {label: '原版', bars: [{cls: 'orig', v: 70579, text: '70,579', tip: ['原版', '70,579 token', '源码 45,979，配置 24,600']}]},
+        {label: 'graph-contract', bars: [{cls: 'gc', v: 37624, text: '37,624 · 53.3%', tip: ['graph-contract', '37,624 token', '保留 53.3%']}]},
+        {label: 'field-fixes', bars: [{cls: 'ff', v: 38227, text: '38,227 · 54.2%', tip: ['field-fixes', '38,227 token', '保留 54.2%']}]},
+        {label: 'fact-rules', bars: [{cls: 'fr', v: 41475, text: '41,475 · 58.8%', tip: ['fact-rules', '41,475 token', '保留 58.8%']}]}
+      ]
+    });
+
+    var fail = document.getElementById('c-fail');
+    if (fail) lineChart(fail, {
+      aria: '每个候选失败的检查数随尝试次数的变化，三次实验最终都降到 0',
+      key: 'f', n: 11, y0: 0, y1: 10, ticks: [0, 2, 4, 6, 8, 10], tickFmt: String,
+      valFmt: function(p){ return p.f === 0 ? '全过' : '失败 ' + p.f + ' 项'; }
+    });
+
+    var tok = document.getElementById('c-tok');
+    if (tok) lineChart(tok, {
+      aria: '每个候选的总 token 随尝试次数的变化，目标为 35,289',
+      key: 't', n: 11, y0: 34000, y1: 42000, ticks: [34000, 36000, 38000, 40000, 42000], tickFmt: K,
+      ref: {v: 35289, label: '目标 35,289'},
+      endFmt: num,
+      valFmt: function(p){ return num(p.t) + ' token'; }
+    });
+
+    var time = document.getElementById('c-time');
+    function tb(group, vals){
+      return {label: group, bars: RUNS.map(function(run, i){
+        return {cls: run[0], v: vals[i], text: vals[i].toFixed(1), tip: [group + ' · ' + run[1], vals[i].toFixed(1) + ' 分钟', '']};
+      })};
+    }
+    if (time) barChart(time, {
+      aria: '各阶段用时（分钟）：冻结、作者调用、保存与验证、控制器，三次实验对比',
+      labW: 84, padR: 48, bh: 12, ggap: 16, max: 140, ticks: [0, 30, 60, 90, 120], tickFmt: String,
+      groups: [tb('冻结', [40.6, 26.9, 28.4]), tb('作者调用', [86.8, 126.1, 81.1]), tb('保存与验证', [12.0, 15.5, 9.2]), tb('控制器', [6.6, 9.5, 6.8])]
+    });
+  }
+
+  var raf = 0, lastW = -1;
+  function schedule(){
+    var wrap = document.getElementById('wrap'); var w = wrap ? wrap.clientWidth : 0;
+    if (w === lastW || raf) return;
+    lastW = w;
+    raf = requestAnimationFrame(function(){ raf = 0; drawAll(); });
+  }
+  drawAll();
+  var wrapEl = document.getElementById('wrap');
+  lastW = wrapEl ? wrapEl.clientWidth : 0;
+  if (typeof ResizeObserver !== 'undefined' && wrapEl){ new ResizeObserver(schedule).observe(wrapEl); }
+  else { window.addEventListener('resize', schedule); }
+})();
+</script>
+</body>
+</html>
